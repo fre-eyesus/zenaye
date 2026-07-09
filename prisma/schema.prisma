@@ -1,0 +1,41 @@
+// Prisma schema for the tech-news platform.
+// Datasource is SQLite for zero-setup local dev; swap `provider`/`url` to
+// Postgres later without touching the models.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id              String     @id @default(cuid())
+  email           String     @unique
+  name            String?
+  passwordHash    String
+  // JSON-encoded array of source ids the user follows, e.g. ["theverge","hn"].
+  // Empty array (default) means "show everything".
+  favoriteSources String     @default("[]")
+  createdAt       DateTime   @default(now())
+  bookmarks       Bookmark[]
+}
+
+model Bookmark {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  url         String
+  title       String
+  source      String
+  imageUrl    String?
+  excerpt     String?
+  publishedAt DateTime?
+  savedAt     DateTime @default(now())
+
+  // A user can only bookmark a given article once.
+  @@unique([userId, url])
+  @@index([userId])
+}
