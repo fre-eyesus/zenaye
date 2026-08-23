@@ -1,5 +1,4 @@
 import Parser from "rss-parser";
-import { unstable_cache } from "next/cache";
 import { SOURCES, getSource, type Source } from "./feeds";
 
 /** Normalized article shape used everywhere in the UI. */
@@ -101,28 +100,58 @@ async function fetchSource(source: Source): Promise<Article[]> {
   }
 }
 
+/** Fetch and merge the requested sources (or all), newest first. */
+async function loadArticles(sourceIds?: string[]): Promise<Article[]> {
+  const sources =
+    sourceIds && sourceIds.length > 0
+      ? sourceIds.map(getSource).filter((s): s is Source => Boolean(s))
+      : SOURCES;
+
+  const batches = await Promise.all(sources.map(fetchSource));
+  const merged = batches.flat();
+
+  merged.sort((a, b) => {
+    const ta = a.publishedAt ? Date.parse(a.publishedAt) : 0;
+    const tb = b.publishedAt ? Date.parse(b.publishedAt) : 0;
+    return tb - ta;
+  });
+
+  return merged;
+}
+
+// In-process TTL cache: avoids hammering upstream feeds on every request
+// without relying on the deprecated `unstable_cache`. Entries store the
+// in-flight promise so concurrent cold requests share a single fetch; failed
+// loads are evicted so the next call retries rather than serving a rejection.
+const CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes
+const articleCache = new Map<string, { at: number; promise: Promise<Article[]> }>();
+
 /**
  * Fetch and merge all (or a subset of) sources, newest first.
- * Cached for 15 minutes so we don't hammer the feeds on every request.
+ * Results are cached for 15 minutes, keyed by the (normalized) source set.
  */
-export const getArticles = unstable_cache(
-  async (sourceIds?: string[]): Promise<Article[]> => {
-    const sources =
-      sourceIds && sourceIds.length > 0
-        ? sourceIds.map(getSource).filter((s): s is Source => Boolean(s))
-        : SOURCES;
+export function getArticles(sourceIds?: string[]): Promise<Article[]> {
+  const key =
+    sourceIds && sourceIds.length > 0
+      ? [...sourceIds].sort().join(",")
+      : "__all__";
 
-    const batches = await Promise.all(sources.map(fetchSource));
-    const merged = batches.flat();
+  const now = Date.now();
+  const hit = articleCache.get(key);
+  if (hit && now - hit.at < CACHE_TTL_MS) {
+    return hit.promise;
+  }
 
-    merged.sort((a, b) => {
-      const ta = a.publishedAt ? Date.parse(a.publishedAt) : 0;
-      const tb = b.publishedAt ? Date.parse(b.publishedAt) : 0;
-      return tb - ta;
-    });
+  const promise = loadArticles(sourceIds);
+  articleCache.set(key, { at: now, promise });
 
-    return merged;
-  },
-  ["articles"],
-  { revalidate: 900, tags: ["articles"] },
-);
+  // Don't cache a rejection — drop the entry so a later call can retry.
+  promise.catch(() => {
+    const current = articleCache.get(key);
+    if (current && current.promise === promise) {
+      articleCache.delete(key);
+    }
+  });
+
+  return promise;
+}

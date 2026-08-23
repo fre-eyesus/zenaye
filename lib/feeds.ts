@@ -65,3 +65,20 @@ const SOURCE_BY_ID = new Map(SOURCES.map((s) => [s.id, s]));
 export function getSource(id: string): Source | undefined {
   return SOURCE_BY_ID.get(id);
 }
+
+/**
+ * Parse a stored `favoriteSources` JSON string into a clean list of source ids,
+ * dropping anything malformed or pointing at a source we no longer carry.
+ */
+export function parseFavoriteSources(json: string | null | undefined): string[] {
+  if (!json) return [];
+  try {
+    const parsed: unknown = JSON.parse(json);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (id): id is string => typeof id === "string" && SOURCE_BY_ID.has(id),
+    );
+  } catch {
+    return [];
+  }
+}

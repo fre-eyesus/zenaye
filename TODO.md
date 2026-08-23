@@ -30,63 +30,95 @@ feed).
       aggregated `Article[]`; calls `getArticles()` from `lib/rss.ts`.
       Validates unknown source → 400. Smoke-tested: all=140, hackernews=20,
       bad source → 400.
+      
 
-> Note: `lib/rss.ts` still uses `unstable_cache` (deprecated in Next 16 in
-> favor of the `use cache` directive). Deferred by choice — revisit as its
-> own task before shipping (see AGENTS.md "heed deprecation notices").
-
----
-
-## 🔨 Task 3 — Feed UI (the "beautiful interface")
-
-- [ ] **`components/ArticleCard.tsx`** — image (with colored placeholder fallback),
-      source badge, title, excerpt, relative time, link to original article
-- [ ] **`components/ArticleGrid.tsx`** — responsive card grid
-- [ ] **`components/SourceFilter.tsx`** — tabs to filter by source
-- [ ] **`components/Header.tsx`** — logo, nav, login/avatar area
-- [ ] **`app/page.tsx`** — home feed page wiring the above together
-- [ ] **`app/layout.tsx`** — set title/metadata, dark theme, render Header
-- [ ] **`app/globals.css`** — dark theme colors / base styles
+> Note: `lib/rss.ts` previously used `unstable_cache` (deprecated in Next 16).
+> ✅ **Resolved** — replaced with an in-process TTL cache (15 min, keyed by the
+> source set, with in-flight dedup and rejection eviction). No behavior change
+> for callers; `getArticles()` is still an async function.
 
 ---
 
-## 🔨 Task 4 — Authentication
+## ✅ Task 3 — Feed UI (done)
 
-- [ ] **`lib/auth.ts`** — Auth.js config: Credentials provider, bcrypt compare,
-      Prisma adapter, JWT sessions
-- [ ] **`app/api/auth/[...nextauth]/route.ts`** — Auth.js route handlers
-- [ ] **`app/api/register/route.ts`** — `POST` create account (hash password)
-- [ ] **`components/AuthForm.tsx`** — shared login/signup form
-- [ ] **`app/login/page.tsx`** and **`app/signup/page.tsx`**
-- [ ] **Session provider** wrapper + make Header show avatar / logout when logged in
-- [ ] Wrap protected routes / redirect logic
+- [x] **`components/ArticleCard.tsx`** — plain `<img>` (colored placeholder when
+      no image), source badge, title, excerpt, relative time, links to original
+- [x] **`components/ArticleGrid.tsx`** — responsive 1/2/3-col grid + empty state
+- [x] **`components/SourceFilter.tsx`** — `<Link>`-based tabs (`?source=`), no
+      client JS, shareable URLs, active tab uses source accent color
+- [x] **`components/Header.tsx`** — Zenaye logo, Feed nav, Log in placeholder
+- [x] **`app/page.tsx`** — Server Component; reads `?source=`, calls
+      `getArticles()` directly, renders filter + grid
+- [x] **`app/layout.tsx`** — real title/metadata, renders Header, dark body
+- [x] **`app/globals.css`** — pinned dark theme (no longer OS-dependent)
+- [x] **`lib/time.ts`** — `relativeTime()` helper (new)
 
----
-
-## 🔨 Task 5 — Bookmarks
-
-- [ ] **`app/api/bookmarks/route.ts`** — `GET` (list), `POST` (save), `DELETE` (remove)
-- [ ] **`components/BookmarkButton.tsx`** — toggle on each card (auth-gated)
-- [ ] **`app/bookmarks/page.tsx`** — list the logged-in user's saved articles
-
----
-
-## 🔨 Task 6 — Personalization
-
-- [ ] **`app/preferences/page.tsx`** — checkboxes to pick favorite sources
-- [ ] Save selection to `User.favoriteSources`
-- [ ] Home feed respects favorites when logged in (filter `getArticles`)
+> Design decisions: images use plain `<img>` (feeds pull from many
+> unpredictable CDNs; next/image would need per-host whitelisting). SourceFilter
+> uses navigation not client state, so the whole feed stays a Server Component.
+> Verified live: `/` → 200 (140 stories, cards + tabs render),
+> `/?source=wired` → 200 filtered. tsc clean, no runtime errors.
 
 ---
 
-## 🔨 Task 7 — Polish & ship
+## ✅ Task 4 — Authentication (done)
 
-- [ ] Loading skeletons for the feed
-- [ ] Empty states (no articles / no bookmarks) and error handling
-- [ ] Responsive / mobile check
-- [ ] Update `README.md` with setup + run instructions
-- [ ] `npm run build` passes with no type errors
-- [ ] Commit & push
+- [x] **`lib/auth.ts`** — Auth.js config: Credentials provider, bcrypt compare,
+      **JWT** sessions, `trustHost: true`. **No Prisma adapter** — the schema is
+      credentials-only (no Account/Session tables), so a direct Prisma lookup in
+      `authorize` is the right fit; Credentials also requires JWT sessions.
+- [x] **`app/api/auth/[...nextauth]/route.ts`** — Auth.js route handlers
+- [x] **`app/actions/auth.ts`** — `login` + `signup` Server Actions (hash with
+      bcrypt, validate, then `signIn`). Chose Server Actions over a
+      `/api/register` route — this version's blessed form pattern (`useActionState`).
+- [x] **`components/AuthForm.tsx`** — shared login/signup form
+- [x] **`app/login/page.tsx`** and **`app/signup/page.tsx`** (redirect if already in)
+- [x] **`components/SessionProviderWrapper.tsx`** + **`components/UserNav.tsx`** —
+      Header shows Bookmarks/Preferences + avatar + Log out when logged in
+- [x] Protected routes redirect to `/login` (`bookmarks`, `preferences`)
+
+> Runtime-verified: real credentials login sets a session cookie; `/api/auth/session`
+> returns the user (with `id`); `trustHost: true` was required — without it a
+> self-hosted production build fails every `/api/auth/*` call with `UntrustedHost`
+> (dev auto-trusts, so it only shows under `next start`).
+
+---
+
+## ✅ Task 5 — Bookmarks (done)
+
+- [x] **`app/api/bookmarks/route.ts`** — `GET` (list), `POST` (upsert/idempotent),
+      `DELETE` (remove). All scoped to the session user; 401 when unauthenticated.
+- [x] **`components/BookmarkButton.tsx`** — optimistic toggle on each card,
+      overlaid outside the `<a>`, `router.refresh()` to resync server data
+- [x] **`app/bookmarks/page.tsx`** — lists the user's saved articles (auth-gated),
+      reconstructs the `Article` shape from the stored snapshot
+
+> Runtime-verified: GET/POST/DELETE + idempotent re-POST all behave correctly
+> with a real session cookie.
+
+---
+
+## ✅ Task 6 — Personalization (done)
+
+- [x] **`app/preferences/page.tsx`** + **`components/PreferencesForm.tsx`** —
+      favorite-source checkboxes
+- [x] Save selection to `User.favoriteSources` via **`app/actions/preferences.ts`**
+      (validates ids, `revalidatePath("/")`)
+- [x] Home feed uses favorites as the default source set when logged in
+      (explicit `?source=` always wins) — see `lib/feeds.ts#parseFavoriteSources`
+
+---
+
+## ✅ Task 7 — Polish & ship (done, pending push)
+
+- [x] Loading skeletons for the feed (`app/loading.tsx`, `app/bookmarks/loading.tsx`,
+      `components/ArticleGridSkeleton.tsx`)
+- [x] Empty states (no articles / no bookmarks) + error handling
+      (`app/error.tsx`, `app/not-found.tsx`)
+- [x] Responsive / mobile check — Header + SourceFilter wrap; grid is 1/2/3-col
+- [x] Rewrote `README.md` with setup + run instructions
+- [x] `npm run build` passes with no type errors
+- [ ] Commit & push _(awaiting confirmation)_
 
 ---
 

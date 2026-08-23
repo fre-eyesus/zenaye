@@ -1,13 +1,14 @@
 import Link from "next/link";
+import { UserNav } from "@/components/UserNav";
 
 /**
- * Top navigation bar. Server Component for now — the login/avatar area is a
- * placeholder that Task 4 (auth) will wire up to the session.
+ * Top navigation bar. The auth-aware area (UserNav) is a client island that
+ * reflects the session; the rest renders on the server.
  */
 export function Header() {
   return (
     <header className="sticky top-0 z-10 border-b border-white/10 bg-black/80 backdrop-blur">
-      <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 sm:px-6">
+      <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-y-2 px-4 py-3 sm:px-6">
         <Link href="/" className="flex items-center gap-2">
           <span className="text-xl font-bold tracking-tight text-white">
             Zenaye
@@ -17,17 +18,11 @@ export function Header() {
           </span>
         </Link>
 
-        <nav className="flex items-center gap-4 text-sm">
+        <nav className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
           <Link href="/" className="text-zinc-300 hover:text-white">
             Feed
           </Link>
-          {/* Auth-gated links land here in Task 4/5. */}
-          <Link
-            href="/login"
-            className="rounded-md bg-white px-3 py-1.5 font-medium text-black hover:bg-zinc-200"
-          >
-            Log in
-          </Link>
+          <UserNav />
         </nav>
       </div>
     </header>
